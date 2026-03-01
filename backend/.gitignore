@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Environment variables (QUAN TRỌNG - không đưa lên GitHub)
+.env
+
+# Build output
+dist/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db

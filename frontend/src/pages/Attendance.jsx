@@ -102,6 +102,24 @@ export default function AttendancePage() {
     }
   };
 
+  const deleteSession = async (e, sessionId) => {
+    e.stopPropagation();
+    if (!confirm('Xóa buổi học này và toàn bộ dữ liệu điểm danh?')) return;
+    try {
+      await api.delete(`/attendance/session/${sessionId}`);
+      if (selectedSession?.id === sessionId) {
+        setSelectedSession(null);
+        selectedSessionRef.current = null;
+        setRecords([]);
+        setQrImage('');
+        clearInterval(pollRef.current);
+      }
+      loadSessions();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Lỗi xóa buổi học');
+    }
+  };
+
   const statusColor = { present: 'bg-green-100 text-green-700', absent: 'bg-red-100 text-red-700', late: 'bg-yellow-100 text-yellow-700' };
   const statusLabel = { present: 'Có mặt', absent: 'Vắng', late: 'Trễ' };
   const qrRecords = records.filter(r => r.method === 'qr');
@@ -150,7 +168,20 @@ export default function AttendancePage() {
                     <p className="font-medium text-sm text-gray-800">{new Date(s.date).toLocaleDateString('vi-VN')}</p>
                     <p className="text-xs text-gray-400 mt-0.5">{s.attended_count} sinh viên có mặt</p>
                   </div>
-                  {canManage && <span className="text-xs text-blue-500">Xem chi tiết →</span>}
+                  <div className="flex items-center gap-2">
+                    {canManage && <span className="text-xs text-blue-500">Xem →</span>}
+                    {canManage && (
+                      <button
+                        onClick={(e) => deleteSession(e, s.id)}
+                        className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1 rounded-lg transition-colors"
+                        title="Xóa buổi học"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

@@ -117,6 +117,18 @@ router.post('/manual', authenticate, authorize('teacher', 'admin'), async (req, 
   }
 });
 
+// DELETE attendance session (and all its records)
+router.delete('/session/:sessionId', authenticate, authorize('teacher', 'admin'), async (req, res) => {
+  try {
+    await db.query('DELETE FROM attendance_records WHERE session_id = ?', [req.params.sessionId]);
+    const [result] = await db.query('DELETE FROM attendance_sessions WHERE id = ?', [req.params.sessionId]);
+    if (result.affectedRows === 0) return res.status(404).json({ message: 'Session not found' });
+    res.json({ message: 'Session deleted' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // GET records for a session
 router.get('/session/:sessionId/records', authenticate, async (req, res) => {
   try {

@@ -73,12 +73,26 @@ router.post('/qr-checkin', authenticate, authorize('student'), async (req, res) 
       return res.status(400).json({ message: 'QR code has expired' });
     }
 
-    await db.query(
+    const [result] = await db.query(
       `INSERT IGNORE INTO attendance_records (session_id, student_id, status, method)
        VALUES (?, ?, 'present', 'qr')`,
       [sessionId, req.user.id]
     );
-    res.json({ message: 'Attendance marked successfully via QR' });
+    if (result.affectedRows === 0) {
+      return res.json({ message: 'Bạn đã điểm danh buổi học này rồi!', alreadyMarked: true });
+    }
+    res.json({ message: 'Điểm danh thành công!', alreadyMarked: false });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// DELETE attendance record
+router.delete('/record/:recordId', authenticate, authorize('teacher', 'admin'), async (req, res) => {
+  try {
+    const [result] = await db.query('DELETE FROM attendance_records WHERE id = ?', [req.params.recordId]);
+    if (result.affectedRows === 0) return res.status(404).json({ message: 'Record not found' });
+    res.json({ message: 'Attendance record deleted' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

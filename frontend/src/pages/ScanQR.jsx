@@ -55,8 +55,13 @@ export default function ScanQR() {
         sessionId: parseInt(sessionId),
         token,
       });
-      setStatus('success');
-      setMessage(res.data.message || 'Điểm danh thành công!');
+      if (res.data.alreadyMarked) {
+        setStatus('already');
+        setMessage(res.data.message);
+      } else {
+        setStatus('success');
+        setMessage(res.data.message || 'Điểm danh thành công!');
+      }
     } catch (err) {
       const msg = err.response?.data?.message || '';
       if (msg.toLowerCase().includes('expired')) {

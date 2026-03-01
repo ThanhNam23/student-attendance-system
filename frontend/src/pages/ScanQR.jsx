@@ -15,17 +15,34 @@ export default function ScanQR() {
     setStatus('loading');
 
     try {
-      // Parse URL: .../checkin?sessionId=X&token=Y
+      // Parse URL: .../student-attendance-system/#/checkin?sessionId=X&token=Y
+      // Params are after '#' so we need to parse the hash fragment
       let sessionId, token;
       try {
         const url = new URL(decodedText);
-        sessionId = url.searchParams.get('sessionId');
-        token = url.searchParams.get('token');
+        // Hash-based routing: hash = "#/checkin?sessionId=1&token=xxx"
+        const hashPart = url.hash; // e.g. "#/checkin?sessionId=1&token=xxx"
+        const queryIndex = hashPart.indexOf('?');
+        if (queryIndex !== -1) {
+          const queryString = hashPart.slice(queryIndex + 1);
+          const params = new URLSearchParams(queryString);
+          sessionId = params.get('sessionId');
+          token = params.get('token');
+        }
+        // Fallback: try normal searchParams (non-hash URL)
+        if (!sessionId || !token) {
+          sessionId = url.searchParams.get('sessionId');
+          token = url.searchParams.get('token');
+        }
       } catch {
         // fallback: try JSON
-        const data = JSON.parse(decodedText);
-        sessionId = data.sessionId;
-        token = data.token;
+        try {
+          const data = JSON.parse(decodedText);
+          sessionId = data.sessionId;
+          token = data.token;
+        } catch {
+          // not valid JSON either
+        }
       }
 
       if (!sessionId || !token) {

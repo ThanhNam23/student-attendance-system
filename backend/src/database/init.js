@@ -145,7 +145,12 @@ async function initDatabase() {
   await connection.end();
 }
 
-initDatabase().catch(err => {
-  console.error('❌ Database init failed:', err.message);
-  process.exit(1);
-});
+module.exports = { initDatabase };
+
+// Run directly if called via: node src/database/init.js
+if (require.main === module) {
+  initDatabase().catch(err => {
+    console.error('❌ Database init failed:', err.message);
+    process.exit(1);
+  });
+}

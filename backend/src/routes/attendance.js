@@ -33,8 +33,9 @@ router.post('/session', authenticate, authorize('teacher', 'admin'), async (req,
        VALUES (?, ?, ?, ?, ?)`,
       [class_id, date, qrToken, qrExpiresAt, req.user.id]
     );
-    // Generate QR code
-    const qrData = JSON.stringify({ sessionId: result.insertId, token: qrToken });
+    // Generate QR code as URL for easy phone scanning
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const qrData = `${baseUrl}/student-attendance-system/#/checkin?sessionId=${result.insertId}&token=${qrToken}`;
     const qrImage = await QRCode.toDataURL(qrData);
     res.status(201).json({
       sessionId: result.insertId, qrToken, qrImage, qrExpiresAt,
@@ -51,7 +52,8 @@ router.get('/session/:sessionId/qr', authenticate, authorize('teacher', 'admin')
     const [rows] = await db.query('SELECT * FROM attendance_sessions WHERE id = ?', [req.params.sessionId]);
     if (!rows.length) return res.status(404).json({ message: 'Session not found' });
     const session = rows[0];
-    const qrData = JSON.stringify({ sessionId: session.id, token: session.qr_token });
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const qrData = `${baseUrl}/student-attendance-system/#/checkin?sessionId=${session.id}&token=${session.qr_token}`;
     const qrImage = await QRCode.toDataURL(qrData);
     res.json({ qrImage, qrToken: session.qr_token, qrExpiresAt: session.qr_expires_at });
   } catch (err) {

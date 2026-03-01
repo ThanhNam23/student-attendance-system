@@ -11,6 +11,7 @@ import AttendancePage from './pages/Attendance';
 import ExamsPage from './pages/Exams';
 import ExamTake from './pages/ExamTake';
 import ExamResults from './pages/ExamResults';
+import CheckIn from './pages/CheckIn';
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/checkin" element={<CheckIn />} />
           <Route element={<PrivateRoute />}>
             <Route element={<Layout />}>
               <Route path="/" element={<Dashboard />} />

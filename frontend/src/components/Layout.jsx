@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 const navItems = [
   { to: '/', label: '🏠 Tổng quan', roles: ['admin', 'teacher', 'student'] },
   { to: '/classes', label: '📚 Lớp học', roles: ['admin', 'teacher', 'student'] },
+  { to: '/scan', label: '📷 Quét QR điểm danh', roles: ['student'] },
 ];
 
 export default function Layout() {

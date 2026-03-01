@@ -12,6 +12,7 @@ import ExamsPage from './pages/Exams';
 import ExamTake from './pages/ExamTake';
 import ExamResults from './pages/ExamResults';
 import CheckIn from './pages/CheckIn';
+import ScanQR from './pages/ScanQR';
 
 export default function App() {
   return (
@@ -30,6 +31,7 @@ export default function App() {
               <Route path="/classes/:id/exams" element={<ExamsPage />} />
               <Route path="/exam/:examId/take" element={<ExamTake />} />
               <Route path="/exam/:examId/results" element={<ExamResults />} />
+              <Route path="/scan" element={<ScanQR />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/" />} />

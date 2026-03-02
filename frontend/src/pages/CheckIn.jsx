@@ -84,9 +84,12 @@ export default function CheckIn() {
         } else if (msg.includes('hợp lệ') || msg.toLowerCase().includes('invalid')) {
           setStatus('error');
           setMessage('QR code không hợp lệ.');
-        } else {
+        } else if (msg.includes('đã điểm danh') || msg.toLowerCase().includes('already')) {
           setStatus('already');
           setMessage('Bạn đã điểm danh buổi học này rồi!');
+        } else {
+          setStatus('error');
+          setMessage(msg);
         }
       }
     }

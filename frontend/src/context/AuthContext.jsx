@@ -5,8 +5,21 @@ const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
-    const stored = localStorage.getItem('user');
-    return stored ? JSON.parse(stored) : null;
+    try {
+      const stored = localStorage.getItem('user');
+      const token = localStorage.getItem('token');
+      if (!stored || !token) return null;
+      const parsed = JSON.parse(stored);
+      // Token cũ không có role → buộc đăng nhập lại
+      if (!parsed.role) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
   });
   const [loading, setLoading] = useState(false);
 

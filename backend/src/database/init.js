@@ -75,6 +75,14 @@ async function initDatabase() {
 
   // Migrate: add columns if they don't exist (for existing databases)
   try {
+    await connection.query(`ALTER TABLE users ADD COLUMN role ENUM('admin','teacher','student') NOT NULL DEFAULT 'student'`);
+    console.log('✅ Migrated: added role column to users');
+  } catch (_) {}
+  // Set first user as admin if role column just created
+  try {
+    await connection.query(`UPDATE users SET role = 'teacher' WHERE role = 'student' AND id IN (SELECT id FROM (SELECT id FROM users WHERE id NOT IN (SELECT id FROM users WHERE role = 'admin') ORDER BY id LIMIT 1) t)`);
+  } catch (_) {}
+  try {
     await connection.query(`ALTER TABLE attendance_sessions ADD COLUMN name VARCHAR(200) NULL`);
   } catch (_) {}
   try {
@@ -91,6 +99,12 @@ async function initDatabase() {
   } catch (_) {}
   try {
     await connection.query(`ALTER TABLE attendance_sessions ADD COLUMN gps_expires_at DATETIME NULL`);
+  } catch (_) {}
+  try {
+    await connection.query(`ALTER TABLE attendance_sessions ADD COLUMN created_by INT NULL`);
+  } catch (_) {}
+  try {
+    await connection.query(`ALTER TABLE exams ADD COLUMN created_by INT NULL`);
   } catch (_) {}
 
   // Migrate: add 'gps' value to attendance_records.method ENUM if missing

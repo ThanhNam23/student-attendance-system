@@ -32,25 +32,42 @@ router.get('/class/:classId', authenticate, async (req, res) => {
   }
 });
 
-// POST create attendance session
+// POST create attendance session (QR + optional GPS in one)
 router.post('/session', authenticate, authorize('teacher', 'admin'), async (req, res) => {
-  const { class_id, date } = req.body;
+  const { class_id, date, lat, lng, radius } = req.body;
   if (!class_id || !date) return res.status(400).json({ message: 'class_id and date required' });
   try {
     const qrToken = uuidv4();
     const qrExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    // GPS fields (optional)
+    const hasGps = lat !== undefined && lng !== undefined;
+    const gpsToken = hasGps ? uuidv4() : null;
+    const gpsExpiresAt = hasGps ? new Date(Date.now() + 30 * 60 * 1000) : null;
+    const gpsRadius = hasGps ? (parseInt(radius) || 100) : null;
+
     const [result] = await db.query(
-      `INSERT INTO attendance_sessions (class_id, date, qr_token, qr_expires_at, created_by)
-       VALUES (?, ?, ?, ?, ?)`,
-      [class_id, date, qrToken, qrExpiresAt, req.user.id]
+      `INSERT INTO attendance_sessions
+         (class_id, date, qr_token, qr_expires_at, gps_token, gps_lat, gps_lng, gps_radius, gps_expires_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [class_id, date, qrToken, qrExpiresAt,
+       gpsToken, hasGps ? lat : null, hasGps ? lng : null, gpsRadius, gpsExpiresAt,
+       req.user.id]
     );
-    // Generate QR code as URL for easy phone scanning
+
     const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const qrData = `${baseUrl}/student-attendance-system/#/checkin?sessionId=${result.insertId}&token=${qrToken}`;
     const qrImage = await QRCode.toDataURL(qrData);
+
+    const gpsCheckinUrl = hasGps
+      ? `${baseUrl}/student-attendance-system/#/gps-checkin?sessionId=${result.insertId}&token=${gpsToken}`
+      : null;
+
     res.status(201).json({
-      sessionId: result.insertId, qrToken, qrImage, qrExpiresAt,
-      message: 'Session created. QR valid for 15 minutes.',
+      sessionId: result.insertId,
+      qrToken, qrImage, qrExpiresAt,
+      ...(hasGps && { gpsToken, gpsCheckinUrl, gpsExpiresAt, gpsRadius }),
+      message: `Buổi điểm danh đã tạo.${hasGps ? ' QR (15phút) + GPS (30 phút).' : ' QR (15 phút).'}`,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });

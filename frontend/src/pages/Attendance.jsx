@@ -17,10 +17,11 @@ export default function AttendancePage() {
   const [gpsExpiry, setGpsExpiry] = useState(null);
   const [gpsRadius, setGpsRadius] = useState(null);
   const [gpsCopied, setGpsCopied] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [manualStatus, setManualStatus] = useState({});
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState('qr'); // 'qr' | 'gps' | 'manual'
+  const [activeTab, setActiveTab] = useState('auto'); // 'auto' | 'manual'
   const pollRef = useRef(null);
   const selectedSessionRef = useRef(null);
   const canManage = user?.role === 'teacher' || user?.role === 'admin';
@@ -71,52 +72,47 @@ export default function AttendancePage() {
     await refreshRecords(session);
   };
 
-  const createSession = async () => {
+  const createSession = () => {
     const today = new Date().toISOString().split('T')[0];
-    try {
-      const res = await api.post('/attendance/session', { class_id: classId, date: today });
-      setQrImage(res.data.qrImage);
-      setQrExpiry(new Date(res.data.qrExpiresAt));
-      setGpsCheckinUrl('');
-      loadSessions();
-      // auto select the new session
-      setTimeout(() => viewSession({ id: res.data.sessionId, date: today }), 500);
-    } catch (err) {
-      alert(err.response?.data?.message || 'Lỗi tạo buổi điểm danh');
-    }
-  };
+    setCreating(true);
 
-  const createGPSSession = () => {
-    const today = new Date().toISOString().split('T')[0];
-    const radiusInput = prompt('Đặt bán kính cho phép (mét):\nSinh viên phải trong phạm vi này mới điểm danh được.', '100');
-    if (radiusInput === null) return; // cancelled
-    const radius = parseInt(radiusInput) || 100;
+    const doCreate = async (lat, lng, radius) => {
+      try {
+        const body = { class_id: classId, date: today };
+        if (lat !== undefined) { body.lat = lat; body.lng = lng; body.radius = radius; }
+        const res = await api.post('/attendance/session', body);
+        setQrImage(res.data.qrImage);
+        setQrExpiry(new Date(res.data.qrExpiresAt));
+        setGpsCheckinUrl(res.data.gpsCheckinUrl || '');
+        setGpsExpiry(res.data.gpsExpiresAt ? new Date(res.data.gpsExpiresAt) : null);
+        setGpsRadius(res.data.gpsRadius || null);
+        setActiveTab('auto');
+        loadSessions();
+        setTimeout(() => viewSession({ id: res.data.sessionId, date: today }), 500);
+      } catch (err) {
+        alert(err.response?.data?.message || 'Lỗi tạo buổi điểm danh');
+      } finally {
+        setCreating(false);
+      }
+    };
+
     if (!navigator.geolocation) {
-      alert('Trình duyệt không hỗ trợ GPS. Vui lòng dùng trình duyệt khác.');
+      doCreate();
       return;
     }
+    const radiusInput = prompt('Đặt bán kính GPS cho phép (mét):\n(Bấm Hủy nếu chỉ muốn dùng QR)', '100');
+    if (radiusInput === null) {
+      // User cancelled GPS — create QR only
+      doCreate();
+      return;
+    }
+    const radius = parseInt(radiusInput) || 100;
     navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        try {
-          const res = await api.post('/attendance/gps-session', {
-            class_id: classId,
-            date: today,
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            radius,
-          });
-          setGpsCheckinUrl(res.data.checkinUrl);
-          setGpsExpiry(new Date(res.data.gpsExpiresAt));
-          setGpsRadius(radius);
-          setQrImage('');
-          setActiveTab('gps');
-          loadSessions();
-          setTimeout(() => viewSession({ id: res.data.sessionId, date: today }), 500);
-        } catch (err) {
-          alert(err.response?.data?.message || 'Lỗi tạo buổi điểm danh GPS');
-        }
+      (pos) => doCreate(pos.coords.latitude, pos.coords.longitude, radius),
+      () => {
+        if (confirm('Không lấy được GPS.\nTạo buổi chỉ QR thôi?')) doCreate();
+        else setCreating(false);
       },
-      () => alert('Không lấy được vị trí GPS. Vui lòng cho phép truy cập vị trí và thử lại.'),
       { enableHighAccuracy: true, timeout: 10000 }
     );
   };
@@ -162,8 +158,7 @@ export default function AttendancePage() {
 
   const statusColor = { present: 'bg-green-100 text-green-700', absent: 'bg-red-100 text-red-700', late: 'bg-yellow-100 text-yellow-700' };
   const statusLabel = { present: 'Có mặt', absent: 'Vắng', late: 'Trễ' };
-  const qrRecords = records.filter(r => r.method === 'qr');
-  const gpsRecords = records.filter(r => r.method === 'gps');
+  const autoRecords = records.filter(r => r.method === 'qr' || r.method === 'gps');
 
   const copyGpsUrl = () => {
     navigator.clipboard.writeText(gpsCheckinUrl).then(() => {
@@ -178,47 +173,50 @@ export default function AttendancePage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-800">✅ Điểm danh</h1>
         {canManage && (
-          <div className="flex gap-2">
-            <button onClick={createSession} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
-              + Tạo buổi QR
-            </button>
-            <button onClick={createGPSSession} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
-              📍 Tạo buổi GPS
-            </button>
-          </div>
+          <button
+            onClick={createSession}
+            disabled={creating}
+            className="bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          >
+            {creating ? '⏳ Đang tạo...' : '+ Tạo buổi điểm danh'}
+          </button>
         )}
       </div>
 
-      {/* QR Code display */}
+      {/* Combined QR + GPS info card */}
       {qrImage && (
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6 text-center">
-          <h3 className="font-semibold text-gray-800 mb-3">📱 QR Code điểm danh</h3>
-          <img src={qrImage} alt="QR Code" className="mx-auto w-48 h-48" />
-          <p className="text-sm text-gray-500 mt-2">Hết hạn: {qrExpiry?.toLocaleTimeString('vi-VN')}</p>
-          <p className="text-xs text-green-500 mt-1 animate-pulse">● Tự động cập nhật mỗi 10 giây</p>
-        </div>
-      )}
-
-      {/* GPS Check-in display */}
-      {gpsCheckinUrl && (
-        <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl border border-blue-100 shadow-sm p-6 mb-6">
-          <h3 className="font-semibold text-blue-800 mb-3 text-center">📍 Điểm danh GPS</h3>
-          <div className="bg-white rounded-lg p-3 mb-3 flex items-center gap-2">
-            <p className="text-xs text-gray-600 truncate flex-1 font-mono">{gpsCheckinUrl}</p>
-            <button
-              onClick={copyGpsUrl}
-              className={`shrink-0 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                gpsCopied ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-              }`}
-            >
-              {gpsCopied ? '✔ Đã sao chép' : 'Sao chép link'}
-            </button>
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6">
+          <div className={`grid gap-6 ${gpsCheckinUrl ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
+            {/* QR side */}
+            <div className="text-center">
+              <h3 className="font-semibold text-gray-800 mb-3">📱 Quét QR</h3>
+              <img src={qrImage} alt="QR Code" className="mx-auto w-44 h-44" />
+              <p className="text-xs text-gray-500 mt-2">Hết hạn: {qrExpiry?.toLocaleTimeString('vi-VN')}</p>
+              <p className="text-xs text-green-500 mt-0.5 animate-pulse">● Tự động cập nhật mỗi 10 giây</p>
+            </div>
+            {/* GPS side */}
+            {gpsCheckinUrl && (
+              <div className="flex flex-col justify-center">
+                <h3 className="font-semibold text-gray-800 mb-3 text-center">📍 GPS Check-in</h3>
+                <div className="bg-gray-50 rounded-lg p-3 mb-3 flex items-center gap-2">
+                  <p className="text-xs text-gray-600 truncate flex-1 font-mono">{gpsCheckinUrl}</p>
+                  <button
+                    onClick={copyGpsUrl}
+                    className={`shrink-0 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                      gpsCopied ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                    }`}
+                  >
+                    {gpsCopied ? '✔ Đã sao chép' : 'Sao chép'}
+                  </button>
+                </div>
+                <div className="flex justify-between text-xs text-gray-500 mb-2">
+                  <span>🔹 Bán kính: <strong>{gpsRadius}m</strong></span>
+                  <span>⏱ Hết hạn: <strong>{gpsExpiry?.toLocaleTimeString('vi-VN')}</strong></span>
+                </div>
+                <p className="text-xs text-gray-400 text-center">Sinh viên phải đứng trong phạm vi {gpsRadius}m</p>
+              </div>
+            )}
           </div>
-          <div className="flex justify-between text-xs text-gray-500">
-            <span>🔹 Bán kính: <strong>{gpsRadius}m</strong></span>
-            <span>⏱ Hết hạn: <strong>{gpsExpiry?.toLocaleTimeString('vi-VN')}</strong></span>
-          </div>
-          <p className="text-xs text-gray-400 text-center mt-2">Gửi link này cho sinh viên. Họ phải đừng trong phạm vi {gpsRadius}m mới điểm danh được.</p>
         </div>
       )}
 
@@ -287,16 +285,10 @@ export default function AttendancePage() {
             {/* Tabs */}
             <div className="flex border-b border-gray-100">
               <button
-                onClick={() => setActiveTab('qr')}
-                className={`flex-1 py-2.5 text-xs font-medium transition-colors ${activeTab === 'qr' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                onClick={() => setActiveTab('auto')}
+                className={`flex-1 py-2.5 text-xs font-medium transition-colors ${activeTab === 'auto' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
               >
-                📷 QR ({qrRecords.length})
-              </button>
-              <button
-                onClick={() => setActiveTab('gps')}
-                className={`flex-1 py-2.5 text-xs font-medium transition-colors ${activeTab === 'gps' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                📍 GPS ({gpsRecords.length})
+                📱 QR + GPS ({autoRecords.length})
               </button>
               <button
                 onClick={() => setActiveTab('manual')}
@@ -306,53 +298,25 @@ export default function AttendancePage() {
               </button>
             </div>
 
-            {/* Tab: QR records */}
-            {activeTab === 'qr' && (
+            {/* Tab: QR + GPS combined records */}
+            {activeTab === 'auto' && (
               <div className="flex-1 overflow-y-auto max-h-80">
-                {qrRecords.length === 0 ? (
-                  <div className="p-8 text-center text-gray-400 text-sm">Chưa có sinh viên nào quét QR</div>
+                {autoRecords.length === 0 ? (
+                  <div className="p-8 text-center text-gray-400 text-sm">Chưa có sinh viên nào điểm danh</div>
                 ) : (
                   <div className="divide-y divide-gray-50">
-                    {qrRecords.map(r => (
+                    {autoRecords.map(r => (
                       <div key={r.id} className="flex items-center justify-between px-5 py-3">
                         <div>
                           <p className="text-sm font-medium text-gray-800">{r.name}</p>
                           <p className="text-xs text-gray-400">{new Date(r.marked_at).toLocaleTimeString('vi-VN')}</p>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className={`text-xs px-2 py-1 rounded-full ${statusColor[r.status]}`}>{statusLabel[r.status]}</span>
-                          <button
-                            onClick={() => deleteRecord(r.id)}
-                            className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1 rounded-lg transition-colors"
-                            title="Xóa điểm danh"
-                          >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Tab: Puzzle records */}
-            {activeTab === 'gps' && (
-              <div className="flex-1 overflow-y-auto max-h-80">
-                {gpsRecords.length === 0 ? (
-                  <div className="p-8 text-center text-gray-400 text-sm">Chưa có sinh viên nào điểm danh GPS</div>
-                ) : (
-                  <div className="divide-y divide-gray-50">
-                    {gpsRecords.map(r => (
-                      <div key={r.id} className="flex items-center justify-between px-5 py-3">
-                        <div>
-                          <p className="text-sm font-medium text-gray-800">{r.name}</p>
-                          <p className="text-xs text-gray-400">{new Date(r.marked_at).toLocaleTimeString('vi-VN')}</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">📍 GPS</span>
+                          <span className={`text-xs px-2 py-1 rounded-full ${
+                            r.method === 'gps' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                          }`}>
+                            {r.method === 'gps' ? '📍 GPS' : '📱 QR'}
+                          </span>
                           <button
                             onClick={() => deleteRecord(r.id)}
                             className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1 rounded-lg transition-colors"

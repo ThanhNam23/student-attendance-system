@@ -7,10 +7,14 @@ export default function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [classes, setClasses] = useState([]);
+  const [pendingExams, setPendingExams] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.get('/classes').then(r => setClasses(r.data)).catch(() => {}).finally(() => setLoading(false));
+    Promise.all([
+      api.get('/classes').then(r => setClasses(r.data)).catch(() => {}),
+      api.get('/exams/pending').then(r => setPendingExams(r.data.count)).catch(() => setPendingExams(0)),
+    ]).finally(() => setLoading(false));
   }, []);
 
   const roleLabel = { admin: 'Quản trị viên', teacher: 'Giảng viên', student: 'Sinh viên' };
@@ -43,11 +47,11 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">
-                {user?.role === 'student' ? 'Đã học' : 'Môn đang dạy'}
+                {user?.role === 'student' ? 'Bài thi cần làm' : 'Bài thi đang mở'}
               </p>
-              <p className="text-3xl font-bold text-blue-600 mt-1">{loading ? '...' : classes.length}</p>
+              <p className="text-3xl font-bold text-blue-600 mt-1">{loading ? '...' : (pendingExams ?? 0)}</p>
             </div>
-            <div className="text-4xl">📖</div>
+            <div className="text-4xl">📝</div>
           </div>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">

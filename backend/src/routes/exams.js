@@ -3,6 +3,34 @@ const db = require('../database/db');
 const { authenticate, authorize } = require('../middleware/auth');
 const router = express.Router();
 
+// GET pending exams count for current user
+// Student: active exams in enrolled classes not yet submitted
+// Teacher/admin: active exams they created
+router.get('/pending', authenticate, async (req, res) => {
+  try {
+    let count;
+    if (req.user.role === 'student') {
+      const [[row]] = await db.query(
+        `SELECT COUNT(*) AS cnt FROM exams e
+         JOIN enrollments en ON en.class_id = e.class_id AND en.student_id = ?
+         WHERE e.status = 'active'
+           AND e.id NOT IN (SELECT exam_id FROM submissions WHERE student_id = ?)`,
+        [req.user.id, req.user.id]
+      );
+      count = row.cnt;
+    } else {
+      const [[row]] = await db.query(
+        `SELECT COUNT(*) AS cnt FROM exams WHERE status = 'active' AND created_by = ?`,
+        [req.user.id]
+      );
+      count = row.cnt;
+    }
+    res.json({ count });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // GET exams for a class
 router.get('/class/:classId', authenticate, async (req, res) => {
   try {

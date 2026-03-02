@@ -112,6 +112,7 @@ export default function AttendancePage() {
   };
 
   const saveManual = async () => {
+    if (!selectedSession) return alert('Vui lòng chọn hoặc tạo buổi học trước.');
     // Build from ALL students — use manualStatus override or fallback to existing record status or 'absent'
     const recordsArr = students.map(s => ({
       student_id: s.id,
@@ -124,7 +125,24 @@ export default function AttendancePage() {
       setManualStatus({}); // reset overrides after save
       await refreshRecords(selectedSession);
     } catch (err) {
-      alert(err.response?.data?.message || 'Lỗi lưu điểm danh');
+      alert('Ồi lưu điểm danh: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const createManualSession = async () => {
+    const today = new Date().toISOString().split('T')[0];
+    setCreating(true);
+    try {
+      const res = await api.post('/attendance/manual-session', { class_id: classId, date: today });
+      setActiveTab('manual');
+      setQrImage('');
+      setGpsCheckinUrl('');
+      loadSessions();
+      setTimeout(() => viewSession({ id: res.data.sessionId, date: today }), 500);
+    } catch (err) {
+      alert(err.response?.data?.message || 'Lỗi tạo buổi điểm danh');
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -173,13 +191,22 @@ export default function AttendancePage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-800">✅ Điểm danh</h1>
         {canManage && (
-          <button
-            onClick={createSession}
-            disabled={creating}
-            className="bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
-          >
-            {creating ? '⏳ Đang tạo...' : '+ Tạo buổi điểm danh'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={createManualSession}
+              disabled={creating}
+              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
+            >
+              {creating ? '⏳ Đang tạo...' : '✏️ Thủ công'}
+            </button>
+            <button
+              onClick={createSession}
+              disabled={creating}
+              className="bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
+            >
+              {creating ? '⏳ Đang tạo...' : '+ Tạo buổi điểm danh'}
+            </button>
+          </div>
         )}
       </div>
 

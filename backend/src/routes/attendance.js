@@ -21,12 +21,27 @@ router.get('/class/:classId', authenticate, async (req, res) => {
   try {
     const [rows] = await db.query(
       `SELECT s.*,
-        (SELECT COUNT(*) FROM attendance_records r WHERE r.session_id = s.id) AS attended_count
+        (SELECT COUNT(*) FROM attendance_records r WHERE r.session_id = s.id AND r.status IN ('present','late')) AS attended_count
        FROM attendance_sessions s
        WHERE s.class_id = ? ORDER BY s.date DESC`,
       [req.params.classId]
     );
     res.json(rows);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST create a manual-only session (no QR/GPS)
+router.post('/manual-session', authenticate, authorize('teacher', 'admin'), async (req, res) => {
+  const { class_id, date } = req.body;
+  if (!class_id || !date) return res.status(400).json({ message: 'class_id and date required' });
+  try {
+    const [result] = await db.query(
+      `INSERT INTO attendance_sessions (class_id, date, created_by) VALUES (?, ?, ?)`,
+      [class_id, date, req.user.id]
+    );
+    res.status(201).json({ sessionId: result.insertId, message: 'Buổi điểm danh thủ công đã tạo.' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -139,15 +154,19 @@ router.post('/manual', authenticate, authorize('teacher', 'admin'), async (req, 
   try {
     for (const r of records) {
       if (!r.student_id) continue;
+      const status = r.status || 'absent';
       await db.query(
         `INSERT INTO attendance_records (session_id, student_id, status, method)
          VALUES (?, ?, ?, 'manual')
-         ON DUPLICATE KEY UPDATE status = VALUES(status), method = IF(method = 'manual', 'manual', method)`,
-        [session_id, r.student_id, r.status || 'absent']
+         ON DUPLICATE KEY UPDATE
+           status = ?,
+           method = IF(method = 'manual', 'manual', method)`,
+        [session_id, r.student_id, status, status]
       );
     }
     res.json({ message: 'Điểm danh đã lưu thành công!' });
   } catch (err) {
+    console.error('Manual attendance error:', err.message);
     res.status(500).json({ message: err.message });
   }
 });

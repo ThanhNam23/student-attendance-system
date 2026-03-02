@@ -89,6 +89,11 @@ async function initDatabase() {
     await connection.query(`ALTER TABLE attendance_sessions ADD COLUMN gps_expires_at DATETIME NULL`);
   } catch (_) {}
 
+  // Migrate: add 'gps' value to attendance_records.method ENUM if missing
+  try {
+    await connection.query(`ALTER TABLE attendance_records MODIFY method ENUM('manual','qr','gps') DEFAULT 'manual'`);
+  } catch (_) {}
+
   // Attendance records
   await connection.query(`
     CREATE TABLE IF NOT EXISTS attendance_records (

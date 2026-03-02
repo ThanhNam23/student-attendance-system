@@ -24,8 +24,8 @@ export default function AttendancePage() {
   const [showForm, setShowForm] = useState(false);
   const [formType, setFormType] = useState('qr'); // 'qr' | 'manual'
   const [formName, setFormName] = useState('');
-  const [formMinutes, setFormMinutes] = useState(15);
-  const [formRadius, setFormRadius] = useState(0); // 0 = no GPS
+  const [formMinutes, setFormMinutes] = useState('15');
+  const [formRadius, setFormRadius] = useState('0'); // 0 = no GPS
   const pollRef = useRef(null);
   const selectedSessionRef = useRef(null);
   const canManage = user?.role === 'teacher' || user?.role === 'admin';
@@ -78,8 +78,8 @@ export default function AttendancePage() {
   const openForm = (type) => {
     setFormType(type);
     setFormName('');
-    setFormMinutes(15);
-    setFormRadius(0);
+    setFormMinutes('15');
+    setFormRadius('0');
     setShowForm(true);
   };
 
@@ -113,8 +113,8 @@ export default function AttendancePage() {
     // QR type — optionally get GPS
     const doCreate = async (lat, lng) => {
       try {
-        const body = { class_id: classId, date: today, name, qrMinutes: formMinutes };
-        if (lat !== undefined) { body.lat = lat; body.lng = lng; body.radius = formRadius; }
+        const body = { class_id: classId, date: today, name, qrMinutes: Math.max(1, parseInt(formMinutes) || 15) };
+        if (lat !== undefined) { body.lat = lat; body.lng = lng; body.radius = Math.max(0, parseInt(formRadius) || 0); }
         const res = await api.post('/attendance/session', body);
         setQrImage(res.data.qrImage);
         setQrExpiry(new Date(res.data.qrExpiresAt));
@@ -130,7 +130,7 @@ export default function AttendancePage() {
       }
     };
 
-    if (formRadius > 0 && navigator.geolocation) {
+    if (parseInt(formRadius) > 0 && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => doCreate(pos.coords.latitude, pos.coords.longitude),
         () => { if (confirm('Không lấy được GPS.\nTạo buổi chỉ QR thôi?')) doCreate(); else setCreating(false); },
@@ -257,20 +257,20 @@ export default function AttendancePage() {
                     type="number"
                     min={1} max={480}
                     value={formMinutes}
-                    onChange={e => setFormMinutes(Math.max(1, parseInt(e.target.value) || 15))}
+                    onChange={e => setFormMinutes(e.target.value)}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
                   />
                 </div>
                 <div className="mb-5">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Bán kính GPS <span className="text-gray-400 font-normal">(mét, 0 = tắt)</span></label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Bán kính GPS</label>
                   <input
                     type="number"
                     min={0} max={5000}
                     value={formRadius}
-                    onChange={e => setFormRadius(Math.max(0, parseInt(e.target.value) || 0))}
+                    onChange={e => setFormRadius(e.target.value)}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
                   />
-                  {formRadius > 0 && <p className="text-xs text-blue-500 mt-1">📍 Sinh viên phải đứng trong {formRadius}m khi quét QR</p>}
+                  {parseInt(formRadius) > 0 && <p className="text-xs text-blue-500 mt-1">📍 Sinh viên phải đứng trong {formRadius}m khi quét QR</p>}
                 </div>
               </>
             )}

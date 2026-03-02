@@ -61,11 +61,33 @@ async function initDatabase() {
       date DATE NOT NULL,
       qr_token VARCHAR(100) UNIQUE,
       qr_expires_at DATETIME,
+      gps_token VARCHAR(100) NULL,
+      gps_lat DOUBLE NULL,
+      gps_lng DOUBLE NULL,
+      gps_radius INT DEFAULT 100,
+      gps_expires_at DATETIME NULL,
       created_by INT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE
     )
   `);
+
+  // Migrate: add GPS columns if they don't exist (for existing databases)
+  try {
+    await connection.query(`ALTER TABLE attendance_sessions ADD COLUMN gps_token VARCHAR(100) NULL`);
+  } catch (_) {}
+  try {
+    await connection.query(`ALTER TABLE attendance_sessions ADD COLUMN gps_lat DOUBLE NULL`);
+  } catch (_) {}
+  try {
+    await connection.query(`ALTER TABLE attendance_sessions ADD COLUMN gps_lng DOUBLE NULL`);
+  } catch (_) {}
+  try {
+    await connection.query(`ALTER TABLE attendance_sessions ADD COLUMN gps_radius INT DEFAULT 100`);
+  } catch (_) {}
+  try {
+    await connection.query(`ALTER TABLE attendance_sessions ADD COLUMN gps_expires_at DATETIME NULL`);
+  } catch (_) {}
 
   // Attendance records
   await connection.query(`
@@ -74,7 +96,7 @@ async function initDatabase() {
       session_id INT NOT NULL,
       student_id INT NOT NULL,
       status ENUM('present','absent','late') DEFAULT 'present',
-      method ENUM('manual','qr') DEFAULT 'manual',
+      method ENUM('manual','qr','gps') DEFAULT 'manual',
       marked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (session_id) REFERENCES attendance_sessions(id) ON DELETE CASCADE,
       FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,

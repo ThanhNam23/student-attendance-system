@@ -13,6 +13,7 @@ import ExamTake from './pages/ExamTake';
 import ExamResults from './pages/ExamResults';
 import CheckIn from './pages/CheckIn';
 import ScanQR from './pages/ScanQR';
+import GPSCheckIn from './pages/GPSCheckIn';
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/checkin" element={<CheckIn />} />
+          <Route path="/gps-checkin" element={<GPSCheckIn />} />
           <Route element={<PrivateRoute />}>
             <Route element={<Layout />}>
               <Route path="/" element={<Dashboard />} />

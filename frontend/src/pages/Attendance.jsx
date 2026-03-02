@@ -36,9 +36,14 @@ export default function AttendancePage() {
 
   useEffect(() => {
     loadSessions();
-    if (canManage) api.get(`/classes/${classId}/students`).then(r => setStudents(r.data));
-    return () => clearInterval(pollRef.current);
   }, [classId]);
+
+  useEffect(() => {
+    if (canManage && classId) {
+      api.get(`/classes/${classId}/students`).then(r => setStudents(r.data));
+    }
+    return () => clearInterval(pollRef.current);
+  }, [classId, canManage]);
 
   // Auto-refresh records every 10s when QR is active
   useEffect(() => {
@@ -89,8 +94,14 @@ export default function AttendancePage() {
         const res = await api.post('/attendance/manual-session', { class_id: classId, date: today, name });
         setActiveTab('manual');
         setQrImage('');
-        loadSessions();
-        setTimeout(() => viewSession({ id: res.data.sessionId, date: today, name }), 500);
+        await new Promise(resolve => {
+          api.get(`/attendance/class/${classId}`).then(r => {
+            setSessions(r.data);
+            const created = r.data.find(s => s.id === res.data.sessionId);
+            if (created) viewSession(created);
+            resolve();
+          }).catch(resolve);
+        });
       } catch (err) {
         alert(err.response?.data?.message || 'Lỗi tạo buổi điểm danh');
       } finally {

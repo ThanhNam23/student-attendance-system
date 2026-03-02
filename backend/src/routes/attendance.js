@@ -129,17 +129,24 @@ router.delete('/record/:recordId', authenticate, authorize('teacher', 'admin'), 
 // POST manual attendance (mark multiple students)
 router.post('/manual', authenticate, authorize('teacher', 'admin'), async (req, res) => {
   const { session_id, records } = req.body; // records: [{student_id, status}]
-  if (!session_id || !records?.length) return res.status(400).json({ message: 'session_id and records required' });
+  if (!session_id) return res.status(400).json({ message: 'session_id is required' });
+  if (!Array.isArray(records) || records.length === 0) return res.status(400).json({ message: 'records array is required' });
+
+  // Verify session exists
+  const [sessions] = await db.query('SELECT id FROM attendance_sessions WHERE id = ?', [session_id]);
+  if (!sessions.length) return res.status(404).json({ message: 'Session not found' });
+
   try {
     for (const r of records) {
+      if (!r.student_id) continue;
       await db.query(
         `INSERT INTO attendance_records (session_id, student_id, status, method)
          VALUES (?, ?, ?, 'manual')
-         ON DUPLICATE KEY UPDATE status = VALUES(status)`,
-        [session_id, r.student_id, r.status || 'present']
+         ON DUPLICATE KEY UPDATE status = VALUES(status), method = IF(method = 'manual', 'manual', method)`,
+        [session_id, r.student_id, r.status || 'absent']
       );
     }
-    res.json({ message: 'Attendance saved' });
+    res.json({ message: 'Điểm danh đã lưu thành công!' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

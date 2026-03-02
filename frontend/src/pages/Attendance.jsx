@@ -54,12 +54,6 @@ export default function AttendancePage() {
     try {
       const res = await api.get(`/attendance/session/${session.id}/records`);
       setRecords(res.data);
-      const statusMap = {};
-      students.forEach(s => {
-        const found = res.data.find(r => r.student_id === s.id);
-        statusMap[s.id] = found?.status || 'absent';
-      });
-      setManualStatus(statusMap);
       loadSessions();
     } finally {
       if (showIndicator) setRefreshing(false);
@@ -118,10 +112,16 @@ export default function AttendancePage() {
   };
 
   const saveManual = async () => {
-    const recordsArr = Object.entries(manualStatus).map(([student_id, status]) => ({ student_id: parseInt(student_id), status }));
+    // Build from ALL students — use manualStatus override or fallback to existing record status or 'absent'
+    const recordsArr = students.map(s => ({
+      student_id: s.id,
+      status: manualStatus[s.id] ?? (records.find(r => r.student_id === s.id)?.status ?? 'absent'),
+    }));
+    if (!recordsArr.length) return alert('Không có sinh viên trong lớp.');
     try {
       await api.post('/attendance/manual', { session_id: selectedSession.id, records: recordsArr });
       alert('Lưu điểm danh thành công!');
+      setManualStatus({}); // reset overrides after save
       await refreshRecords(selectedSession);
     } catch (err) {
       alert(err.response?.data?.message || 'Lỗi lưu điểm danh');
@@ -342,15 +342,19 @@ export default function AttendancePage() {
                     <div key={s.id} className="flex items-center justify-between px-5 py-3">
                       <p className="text-sm text-gray-800">{s.name}</p>
                       <div className="flex gap-1">
-                        {['present', 'late', 'absent'].map(status => (
-                          <button
-                            key={status}
-                            onClick={() => setManualStatus({ ...manualStatus, [s.id]: status })}
-                            className={`text-xs px-2 py-1 rounded-lg transition-colors ${manualStatus[s.id] === status ? statusColor[status] : 'bg-gray-100 text-gray-500'}`}
-                          >
-                            {statusLabel[status]}
-                          </button>
-                        ))}
+                        {['present', 'late', 'absent'].map(st => {
+                          // Use manual override first, then existing record, then default 'absent'
+                          const current = manualStatus[s.id] ?? (records.find(r => r.student_id === s.id)?.status ?? 'absent');
+                          return (
+                            <button
+                              key={st}
+                              onClick={() => setManualStatus(prev => ({ ...prev, [s.id]: st }))}
+                              className={`text-xs px-2 py-1 rounded-lg transition-colors ${current === st ? statusColor[st] : 'bg-gray-100 text-gray-500'}`}
+                            >
+                              {statusLabel[st]}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   ))}

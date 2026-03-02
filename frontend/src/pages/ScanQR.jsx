@@ -9,52 +9,34 @@ export default function ScanQR() {
   const [message, setMessage] = useState('');
   const [scanned, setScanned] = useState(false);
 
-  const handleScanSuccess = async (decodedText) => {
-    if (scanned) return; // prevent double scan
-    setScanned(true);
-    setStatus('loading');
-
+  const parseQR = (decodedText) => {
     try {
-      // Parse URL: .../student-attendance-system/#/checkin?sessionId=X&token=Y
-      // Params are after '#' so we need to parse the hash fragment
-      let sessionId, token;
-      try {
-        const url = new URL(decodedText);
-        // Hash-based routing: hash = "#/checkin?sessionId=1&token=xxx"
-        const hashPart = url.hash; // e.g. "#/checkin?sessionId=1&token=xxx"
-        const queryIndex = hashPart.indexOf('?');
-        if (queryIndex !== -1) {
-          const queryString = hashPart.slice(queryIndex + 1);
-          const params = new URLSearchParams(queryString);
-          sessionId = params.get('sessionId');
-          token = params.get('token');
-        }
-        // Fallback: try normal searchParams (non-hash URL)
-        if (!sessionId || !token) {
-          sessionId = url.searchParams.get('sessionId');
-          token = url.searchParams.get('token');
-        }
-      } catch {
-        // fallback: try JSON
-        try {
-          const data = JSON.parse(decodedText);
-          sessionId = data.sessionId;
-          token = data.token;
-        } catch {
-          // not valid JSON either
-        }
+      const url = new URL(decodedText);
+      const hashPart = url.hash;
+      const queryIndex = hashPart.indexOf('?');
+      if (queryIndex !== -1) {
+        const params = new URLSearchParams(hashPart.slice(queryIndex + 1));
+        const s = params.get('sessionId');
+        const t = params.get('token');
+        if (s && t) return { sessionId: s, token: t };
       }
+      const s = url.searchParams.get('sessionId');
+      const t = url.searchParams.get('token');
+      if (s && t) return { sessionId: s, token: t };
+    } catch { /* not a URL */ }
+    try {
+      const data = JSON.parse(decodedText);
+      if (data.sessionId && data.token) return data;
+    } catch { /* not JSON */ }
+    return null;
+  };
 
-      if (!sessionId || !token) {
-        setStatus('error');
-        setMessage('QR code không hợp lệ hoặc không phải mã điểm danh.');
-        return;
-      }
-
-      const res = await api.post('/attendance/qr-checkin', {
-        sessionId: parseInt(sessionId),
-        token,
-      });
+  const doCheckIn = async (sessionId, token, lat, lng) => {
+    setStatus('loading');
+    try {
+      const body = { sessionId: parseInt(sessionId), token };
+      if (lat != null && lng != null) { body.lat = lat; body.lng = lng; }
+      const res = await api.post('/attendance/qr-checkin', body);
       if (res.data.alreadyMarked) {
         setStatus('already');
         setMessage(res.data.message);
@@ -63,18 +45,53 @@ export default function ScanQR() {
         setMessage(res.data.message || 'Điểm danh thành công!');
       }
     } catch (err) {
-      const msg = err.response?.data?.message || '';
-      if (msg.toLowerCase().includes('expired')) {
+      const data = err.response?.data || {};
+      const msg = data.message || 'Lỗi điểm danh.';
+      if (data.tooFar) {
+        setStatus('error');
+        setMessage(`Bạn đang ở ngoài phạm vi (${data.distance}m, tối đa ${data.radius}m).`);
+      } else if (data.requiresGps) {
+        setStatus('error');
+        setMessage('Buổi học yêu cầu GPS. Vui lòng cho phép truy cập vị trí và thử lại.');
+      } else if (msg.includes('hết hạn') || msg.toLowerCase().includes('expired')) {
         setStatus('error');
         setMessage('QR code đã hết hạn. Vui lòng yêu cầu giáo viên tạo lại.');
-      } else if (msg.toLowerCase().includes('invalid')) {
+      } else if (msg.includes('hợp lệ') || msg.toLowerCase().includes('invalid')) {
         setStatus('error');
         setMessage('QR code không hợp lệ.');
-      } else {
+      } else if (msg.includes('đã điểm danh') || msg.toLowerCase().includes('already')) {
         setStatus('already');
         setMessage('Bạn đã điểm danh buổi học này rồi!');
+      } else {
+        setStatus('error');
+        setMessage(msg);
       }
     }
+  };
+
+  const handleScanSuccess = async (decodedText) => {
+    if (scanned) return;
+    setScanned(true);
+    setStatus('loading');
+
+    const parsed = parseQR(decodedText);
+    if (!parsed) {
+      setStatus('error');
+      setMessage('QR code không hợp lệ hoặc không phải mã điểm danh.');
+      return;
+    }
+
+    const { sessionId, token } = parsed;
+
+    if (!navigator.geolocation) {
+      doCheckIn(sessionId, token, null, null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => doCheckIn(sessionId, token, pos.coords.latitude, pos.coords.longitude),
+      () => doCheckIn(sessionId, token, null, null),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   };
 
   const handleScanError = (err) => {

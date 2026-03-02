@@ -58,6 +58,7 @@ async function initDatabase() {
     CREATE TABLE IF NOT EXISTS attendance_sessions (
       id INT AUTO_INCREMENT PRIMARY KEY,
       class_id INT NOT NULL,
+      name VARCHAR(200) NULL,
       date DATE NOT NULL,
       qr_token VARCHAR(100) UNIQUE,
       qr_expires_at DATETIME,
@@ -72,7 +73,10 @@ async function initDatabase() {
     )
   `);
 
-  // Migrate: add GPS columns if they don't exist (for existing databases)
+  // Migrate: add columns if they don't exist (for existing databases)
+  try {
+    await connection.query(`ALTER TABLE attendance_sessions ADD COLUMN name VARCHAR(200) NULL`);
+  } catch (_) {}
   try {
     await connection.query(`ALTER TABLE attendance_sessions ADD COLUMN gps_token VARCHAR(100) NULL`);
   } catch (_) {}

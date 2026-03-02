@@ -34,12 +34,13 @@ router.get('/class/:classId', authenticate, async (req, res) => {
 
 // POST create a manual-only session (no QR/GPS)
 router.post('/manual-session', authenticate, authorize('teacher', 'admin'), async (req, res) => {
-  const { class_id, date } = req.body;
+  const { class_id, date, name } = req.body;
   if (!class_id || !date) return res.status(400).json({ message: 'class_id and date required' });
   try {
+    const sessionName = name?.trim() || null;
     const [result] = await db.query(
-      `INSERT INTO attendance_sessions (class_id, date, created_by) VALUES (?, ?, ?)`,
-      [class_id, date, req.user.id]
+      `INSERT INTO attendance_sessions (class_id, date, name, created_by) VALUES (?, ?, ?, ?)`,
+      [class_id, date, sessionName, req.user.id]
     );
     res.status(201).json({ sessionId: result.insertId, message: 'Buổi điểm danh thủ công đã tạo.' });
   } catch (err) {
@@ -47,26 +48,27 @@ router.post('/manual-session', authenticate, authorize('teacher', 'admin'), asyn
   }
 });
 
-// POST create attendance session (QR + optional GPS in one)
+// POST create attendance session (QR + optional GPS verification)
 router.post('/session', authenticate, authorize('teacher', 'admin'), async (req, res) => {
-  const { class_id, date, lat, lng, radius } = req.body;
+  const { class_id, date, name, qrMinutes, lat, lng, radius } = req.body;
   if (!class_id || !date) return res.status(400).json({ message: 'class_id and date required' });
   try {
+    const sessionName = name?.trim() || null;
+    const minutes = Math.max(1, Math.min(480, parseInt(qrMinutes) || 15)); // clamp 1–480 min
     const qrToken = uuidv4();
-    const qrExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+    const qrExpiresAt = new Date(Date.now() + minutes * 60 * 1000);
 
-    // GPS fields (optional)
+    // GPS fields (optional — for location verification via QR)
     const hasGps = lat !== undefined && lng !== undefined;
-    const gpsToken = hasGps ? uuidv4() : null;
-    const gpsExpiresAt = hasGps ? new Date(Date.now() + 30 * 60 * 1000) : null;
     const gpsRadius = hasGps ? (parseInt(radius) || 100) : null;
+    const gpsExpiresAt = hasGps ? new Date(Date.now() + minutes * 60 * 1000) : null;
 
     const [result] = await db.query(
       `INSERT INTO attendance_sessions
-         (class_id, date, qr_token, qr_expires_at, gps_token, gps_lat, gps_lng, gps_radius, gps_expires_at, created_by)
+         (class_id, date, name, qr_token, qr_expires_at, gps_lat, gps_lng, gps_radius, gps_expires_at, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [class_id, date, qrToken, qrExpiresAt,
-       gpsToken, hasGps ? lat : null, hasGps ? lng : null, gpsRadius, gpsExpiresAt,
+      [class_id, date, sessionName, qrToken, qrExpiresAt,
+       hasGps ? lat : null, hasGps ? lng : null, gpsRadius, gpsExpiresAt,
        req.user.id]
     );
 
@@ -74,15 +76,13 @@ router.post('/session', authenticate, authorize('teacher', 'admin'), async (req,
     const qrData = `${baseUrl}/student-attendance-system/#/checkin?sessionId=${result.insertId}&token=${qrToken}`;
     const qrImage = await QRCode.toDataURL(qrData);
 
-    const gpsCheckinUrl = hasGps
-      ? `${baseUrl}/student-attendance-system/#/gps-checkin?sessionId=${result.insertId}&token=${gpsToken}`
-      : null;
-
     res.status(201).json({
       sessionId: result.insertId,
+      name: sessionName,
       qrToken, qrImage, qrExpiresAt,
-      ...(hasGps && { gpsToken, gpsCheckinUrl, gpsExpiresAt, gpsRadius }),
-      message: `Buổi điểm danh đã tạo.${hasGps ? ' QR (15phút) + GPS (30 phút).' : ' QR (15 phút).'}`,
+      gpsEnabled: hasGps,
+      gpsRadius,
+      message: `Buổi điểm danh đã tạo. QR hiệu lực ${minutes} phút${hasGps ? ` + GPS ${gpsRadius}m` : ''}.`,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });

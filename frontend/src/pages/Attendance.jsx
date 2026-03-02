@@ -13,15 +13,19 @@ export default function AttendancePage() {
   const [records, setRecords] = useState([]);
   const [qrImage, setQrImage] = useState('');
   const [qrExpiry, setQrExpiry] = useState(null);
-  const [gpsCheckinUrl, setGpsCheckinUrl] = useState('');
-  const [gpsExpiry, setGpsExpiry] = useState(null);
-  const [gpsRadius, setGpsRadius] = useState(null);
-  const [gpsCopied, setGpsCopied] = useState(false);
+  const [qrGpsEnabled, setQrGpsEnabled] = useState(false);
+  const [qrGpsRadius, setQrGpsRadius] = useState(null);
   const [creating, setCreating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [manualStatus, setManualStatus] = useState({});
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('auto'); // 'auto' | 'manual'
+  // Create form
+  const [showForm, setShowForm] = useState(false);
+  const [formType, setFormType] = useState('qr'); // 'qr' | 'manual'
+  const [formName, setFormName] = useState('');
+  const [formMinutes, setFormMinutes] = useState(15);
+  const [formRadius, setFormRadius] = useState(0); // 0 = no GPS
   const pollRef = useRef(null);
   const selectedSessionRef = useRef(null);
   const canManage = user?.role === 'teacher' || user?.role === 'admin';
@@ -66,23 +70,48 @@ export default function AttendancePage() {
     await refreshRecords(session);
   };
 
-  const createSession = () => {
+  const openForm = (type) => {
+    setFormType(type);
+    setFormName('');
+    setFormMinutes(15);
+    setFormRadius(0);
+    setShowForm(true);
+  };
+
+  const submitForm = async () => {
     const today = new Date().toISOString().split('T')[0];
     setCreating(true);
+    setShowForm(false);
+    const name = formName.trim() || null;
 
-    const doCreate = async (lat, lng, radius) => {
+    if (formType === 'manual') {
       try {
-        const body = { class_id: classId, date: today };
-        if (lat !== undefined) { body.lat = lat; body.lng = lng; body.radius = radius; }
+        const res = await api.post('/attendance/manual-session', { class_id: classId, date: today, name });
+        setActiveTab('manual');
+        setQrImage('');
+        loadSessions();
+        setTimeout(() => viewSession({ id: res.data.sessionId, date: today, name }), 500);
+      } catch (err) {
+        alert(err.response?.data?.message || 'Lỗi tạo buổi điểm danh');
+      } finally {
+        setCreating(false);
+      }
+      return;
+    }
+
+    // QR type — optionally get GPS
+    const doCreate = async (lat, lng) => {
+      try {
+        const body = { class_id: classId, date: today, name, qrMinutes: formMinutes };
+        if (lat !== undefined) { body.lat = lat; body.lng = lng; body.radius = formRadius; }
         const res = await api.post('/attendance/session', body);
         setQrImage(res.data.qrImage);
         setQrExpiry(new Date(res.data.qrExpiresAt));
-        setGpsCheckinUrl(res.data.gpsCheckinUrl || '');
-        setGpsExpiry(res.data.gpsExpiresAt ? new Date(res.data.gpsExpiresAt) : null);
-        setGpsRadius(res.data.gpsRadius || null);
+        setQrGpsEnabled(res.data.gpsEnabled || false);
+        setQrGpsRadius(res.data.gpsRadius || null);
         setActiveTab('auto');
         loadSessions();
-        setTimeout(() => viewSession({ id: res.data.sessionId, date: today }), 500);
+        setTimeout(() => viewSession({ id: res.data.sessionId, date: today, name }), 500);
       } catch (err) {
         alert(err.response?.data?.message || 'Lỗi tạo buổi điểm danh');
       } finally {
@@ -90,25 +119,15 @@ export default function AttendancePage() {
       }
     };
 
-    if (!navigator.geolocation) {
+    if (formRadius > 0 && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => doCreate(pos.coords.latitude, pos.coords.longitude),
+        () => { if (confirm('Không lấy được GPS.\nTạo buổi chỉ QR thôi?')) doCreate(); else setCreating(false); },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    } else {
       doCreate();
-      return;
     }
-    const radiusInput = prompt('Đặt bán kính GPS cho phép (mét):\n(Bấm Hủy nếu chỉ muốn dùng QR)', '100');
-    if (radiusInput === null) {
-      // User cancelled GPS — create QR only
-      doCreate();
-      return;
-    }
-    const radius = parseInt(radiusInput) || 100;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => doCreate(pos.coords.latitude, pos.coords.longitude, radius),
-      () => {
-        if (confirm('Không lấy được GPS.\nTạo buổi chỉ QR thôi?')) doCreate();
-        else setCreating(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
   };
 
   const saveManual = async () => {
@@ -129,22 +148,6 @@ export default function AttendancePage() {
     }
   };
 
-  const createManualSession = async () => {
-    const today = new Date().toISOString().split('T')[0];
-    setCreating(true);
-    try {
-      const res = await api.post('/attendance/manual-session', { class_id: classId, date: today });
-      setActiveTab('manual');
-      setQrImage('');
-      setGpsCheckinUrl('');
-      loadSessions();
-      setTimeout(() => viewSession({ id: res.data.sessionId, date: today }), 500);
-    } catch (err) {
-      alert(err.response?.data?.message || 'Lỗi tạo buổi điểm danh');
-    } finally {
-      setCreating(false);
-    }
-  };
 
   const deleteRecord = async (recordId) => {
     if (!confirm('Xóa bản ghi điểm danh này?')) return;
@@ -177,13 +180,8 @@ export default function AttendancePage() {
   const statusColor = { present: 'bg-green-100 text-green-700', absent: 'bg-red-100 text-red-700', late: 'bg-yellow-100 text-yellow-700' };
   const statusLabel = { present: 'Có mặt', absent: 'Vắng', late: 'Trễ' };
   const autoRecords = records.filter(r => r.method === 'qr' || r.method === 'gps');
-
-  const copyGpsUrl = () => {
-    navigator.clipboard.writeText(gpsCheckinUrl).then(() => {
-      setGpsCopied(true);
-      setTimeout(() => setGpsCopied(false), 2000);
-    });
-  };
+  const todayStr = new Date().toISOString().split('T')[0];
+  const defaultFormName = new Date().toLocaleDateString('vi-VN');
 
   return (
     <div className="p-8">
@@ -191,58 +189,110 @@ export default function AttendancePage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-800">✅ Điểm danh</h1>
         {canManage && (
-          <div className="flex gap-2">
-            <button
-              onClick={createManualSession}
-              disabled={creating}
-              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
-            >
-              {creating ? '⏳ Đang tạo...' : '✏️ Thủ công'}
-            </button>
-            <button
-              onClick={createSession}
-              disabled={creating}
-              className="bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
-            >
-              {creating ? '⏳ Đang tạo...' : '+ Tạo buổi điểm danh'}
-            </button>
-          </div>
+          <button
+            onClick={() => openForm('qr')}
+            disabled={creating}
+            className="bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          >
+            {creating ? '⏳ Đang tạo...' : '+ Tạo buổi điểm danh'}
+          </button>
         )}
       </div>
 
-      {/* Combined QR + GPS info card */}
+      {/* Create session form modal */}
+      {showForm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
+            <h2 className="text-lg font-bold text-gray-800 mb-5">Tạo buổi điểm danh</h2>
+
+            {/* Type toggle */}
+            <div className="flex rounded-xl overflow-hidden border border-gray-200 mb-5">
+              <button
+                onClick={() => setFormType('qr')}
+                className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                  formType === 'qr' ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                📱 QR
+              </button>
+              <button
+                onClick={() => setFormType('manual')}
+                className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                  formType === 'manual' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                ✏️ Thủ công
+              </button>
+            </div>
+
+            {/* Name */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tên buổi học <span className="text-gray-400 font-normal">(tùy chọn)</span></label>
+              <input
+                type="text"
+                value={formName}
+                onChange={e => setFormName(e.target.value)}
+                placeholder={defaultFormName}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+              />
+            </div>
+
+            {/* QR-only options */}
+            {formType === 'qr' && (
+              <>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Thời gian hiệu lực QR <span className="text-gray-400 font-normal">(phút)</span></label>
+                  <input
+                    type="number"
+                    min={1} max={480}
+                    value={formMinutes}
+                    onChange={e => setFormMinutes(Math.max(1, parseInt(e.target.value) || 15))}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+                  />
+                </div>
+                <div className="mb-5">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Bán kính GPS <span className="text-gray-400 font-normal">(mét, 0 = tắt)</span></label>
+                  <input
+                    type="number"
+                    min={0} max={5000}
+                    value={formRadius}
+                    onChange={e => setFormRadius(Math.max(0, parseInt(e.target.value) || 0))}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+                  />
+                  {formRadius > 0 && <p className="text-xs text-blue-500 mt-1">📍 Sinh viên phải đứng trong {formRadius}m khi quét QR</p>}
+                </div>
+              </>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowForm(false)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={submitForm}
+                className={`flex-1 py-2.5 rounded-xl text-white text-sm font-medium transition-colors ${
+                  formType === 'qr' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
+                Tạo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QR info card */}
       {qrImage && (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6">
-          <div className={`grid gap-6 ${gpsCheckinUrl ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
-            {/* QR side */}
-            <div className="text-center">
-              <h3 className="font-semibold text-gray-800 mb-3">📱 Quét QR</h3>
-              <img src={qrImage} alt="QR Code" className="mx-auto w-44 h-44" />
-              <p className="text-xs text-gray-500 mt-2">Hết hạn: {qrExpiry?.toLocaleTimeString('vi-VN')}</p>
-              <p className="text-xs text-green-500 mt-0.5 animate-pulse">● Tự động cập nhật mỗi 10 giây</p>
-            </div>
-            {/* GPS side */}
-            {gpsCheckinUrl && (
-              <div className="flex flex-col justify-center">
-                <h3 className="font-semibold text-gray-800 mb-3 text-center">📍 GPS Check-in</h3>
-                <div className="bg-gray-50 rounded-lg p-3 mb-3 flex items-center gap-2">
-                  <p className="text-xs text-gray-600 truncate flex-1 font-mono">{gpsCheckinUrl}</p>
-                  <button
-                    onClick={copyGpsUrl}
-                    className={`shrink-0 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                      gpsCopied ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                    }`}
-                  >
-                    {gpsCopied ? '✔ Đã sao chép' : 'Sao chép'}
-                  </button>
-                </div>
-                <div className="flex justify-between text-xs text-gray-500 mb-2">
-                  <span>🔹 Bán kính: <strong>{gpsRadius}m</strong></span>
-                  <span>⏱ Hết hạn: <strong>{gpsExpiry?.toLocaleTimeString('vi-VN')}</strong></span>
-                </div>
-                <p className="text-xs text-gray-400 text-center">Sinh viên phải đứng trong phạm vi {gpsRadius}m</p>
-              </div>
-            )}
+          <div className="text-center">
+            <h3 className="font-semibold text-gray-800 mb-3">📱 Mã QR điểm danh</h3>
+            <img src={qrImage} alt="QR Code" className="mx-auto w-48 h-48" />
+            <p className="text-xs text-gray-500 mt-2">Hết hạn: {qrExpiry?.toLocaleTimeString('vi-VN')}</p>
+            {qrGpsEnabled && <p className="text-xs text-blue-500 mt-0.5">📍 Yêu cầu vị trí GPS trong {qrGpsRadius}m</p>}
+            <p className="text-xs text-green-500 mt-0.5 animate-pulse">● Tự động cập nhật mỗi 10 giây</p>
           </div>
         </div>
       )}
@@ -266,8 +316,8 @@ export default function AttendancePage() {
                   className={`p-4 px-5 flex items-center justify-between ${canManage ? 'cursor-pointer hover:bg-gray-50' : ''} ${selectedSession?.id === s.id ? 'bg-blue-50' : ''}`}
                 >
                   <div>
-                    <p className="font-medium text-sm text-gray-800">{new Date(s.date).toLocaleDateString('vi-VN')}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{s.attended_count} sinh viên có mặt</p>
+                    <p className="font-medium text-sm text-gray-800">{s.name || new Date(s.date).toLocaleDateString('vi-VN')}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{s.name ? new Date(s.date).toLocaleDateString('vi-VN') + ' • ' : ''}{s.attended_count} sinh viên có mặt</p>
                   </div>
                   <div className="flex items-center gap-2">
                     {canManage && <span className="text-xs text-blue-500">Xem →</span>}
@@ -295,7 +345,7 @@ export default function AttendancePage() {
             {/* Header */}
             <div className="p-4 border-b border-gray-100 flex items-center justify-between">
               <h2 className="font-semibold text-gray-800 text-sm">
-                {new Date(selectedSession.date).toLocaleDateString('vi-VN')}
+                {selectedSession.name || new Date(selectedSession.date).toLocaleDateString('vi-VN')}
               </h2>
               <button
                 onClick={() => refreshRecords(selectedSession)}

@@ -303,7 +303,6 @@ export default function AttendancePage() {
             <img src={qrImage} alt="QR Code" className="mx-auto w-48 h-48" />
             <p className="text-xs text-gray-500 mt-2">Hết hạn: {qrExpiry?.toLocaleTimeString('vi-VN')}</p>
             {qrGpsEnabled && <p className="text-xs text-blue-500 mt-0.5">📍 Yêu cầu vị trí GPS trong {qrGpsRadius}m</p>}
-            <p className="text-xs text-green-500 mt-0.5 animate-pulse">● Tự động cập nhật mỗi 10 giây</p>
           </div>
         </div>
       )}

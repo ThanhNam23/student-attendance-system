@@ -11,9 +11,11 @@ export default function Classes() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: '', subject: '', description: '' });
   const [submitting, setSubmitting] = useState(false);
+  const [examCounts, setExamCounts] = useState({});
 
   const load = () => {
     api.get('/classes').then(r => setClasses(r.data)).finally(() => setLoading(false));
+    api.get('/exams/pending-by-class').then(r => setExamCounts(r.data)).catch(() => {});
   };
 
   useEffect(() => { load(); }, []);
@@ -144,9 +146,14 @@ export default function Classes() {
                 </button>
                 <button
                   onClick={() => navigate(`/classes/${cls.id}/exams`)}
-                  className="flex-1 text-xs text-center py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg"
+                  className="flex-1 text-xs text-center py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg relative"
                 >
                   📝 Bài kiểm tra
+                  {examCounts[cls.id] > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                      {examCounts[cls.id]}
+                    </span>
+                  )}
                 </button>
                 {canCreate && (
                   <button

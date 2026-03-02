@@ -104,16 +104,39 @@ router.get('/session/:sessionId/qr', authenticate, authorize('teacher', 'admin')
   }
 });
 
-// POST mark attendance via QR
+// POST mark attendance via QR (with optional GPS verification)
 router.post('/qr-checkin', authenticate, authorize('student'), async (req, res) => {
-  const { sessionId, token } = req.body;
+  const { sessionId, token, lat, lng } = req.body;
   try {
     const [sessions] = await db.query('SELECT * FROM attendance_sessions WHERE id = ? AND qr_token = ?', [sessionId, token]);
-    if (!sessions.length) return res.status(400).json({ message: 'Invalid QR code' });
+    if (!sessions.length) return res.status(400).json({ message: 'QR code không hợp lệ' });
 
     const session = sessions[0];
     if (new Date() > new Date(session.qr_expires_at)) {
-      return res.status(400).json({ message: 'QR code has expired' });
+      return res.status(400).json({ message: 'QR code đã hết hạn' });
+    }
+
+    // If session has GPS configured, verify student location
+    if (session.gps_lat !== null && session.gps_lat !== undefined) {
+      if (lat == null || lng == null) {
+        return res.status(400).json({
+          message: 'Buổi học này yêu cầu xác minh vị trí GPS. Vui lòng cho phép truy cập vị trí.',
+          requiresGps: true,
+        });
+      }
+      if (session.gps_expires_at && new Date() > new Date(session.gps_expires_at)) {
+        return res.status(400).json({ message: 'Phiên GPS đã hết hạn.' });
+      }
+      const dist = haversine(session.gps_lat, session.gps_lng, parseFloat(lat), parseFloat(lng));
+      const radius = session.gps_radius || 100;
+      if (dist > radius) {
+        return res.status(400).json({
+          message: `Bạn đang ở ngoài phạm vi (${Math.round(dist)}m). Phải đứng trong vòng ${radius}m.`,
+          tooFar: true,
+          distance: Math.round(dist),
+          radius,
+        });
+      }
     }
 
     const [result] = await db.query(

@@ -51,13 +51,44 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
+// Cleanup expired tokens every hour (NULL out token fields — keep session + records)
+const db = require('./database/db');
+function scheduleTokenCleanup() {
+  const HOUR = 60 * 60 * 1000;
+  setInterval(async () => {
+    try {
+      const [r] = await db.query(
+        `UPDATE attendance_sessions
+         SET qr_token = NULL, qr_expires_at = NULL
+         WHERE qr_expires_at IS NOT NULL AND qr_expires_at < NOW()`
+      );
+      const [g] = await db.query(
+        `UPDATE attendance_sessions
+         SET gps_token = NULL, gps_lat = NULL, gps_lng = NULL, gps_radius = NULL, gps_expires_at = NULL
+         WHERE gps_expires_at IS NOT NULL AND gps_expires_at < NOW()`
+      );
+      if (r.affectedRows + g.affectedRows > 0) {
+        console.log(`[cleanup] Cleared ${r.affectedRows} QR + ${g.affectedRows} GPS expired tokens`);
+      }
+    } catch (err) {
+      console.error('[cleanup] Token cleanup error:', err.message);
+    }
+  }, HOUR);
+}
+
 // Auto-init database then start server
 initDatabase()
   .then(() => {
-    app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+    app.listen(PORT, () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+      scheduleTokenCleanup();
+    });
   })
   .catch(err => {
     console.error('Failed to initialize database:', err.message);
-    // Start server anyway, DB might already be initialized
-    app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT} (DB init failed)`));
+    app.listen(PORT, () => {
+      console.log(`Server running on http://localhost:${PORT} (DB init failed)`);
+      scheduleTokenCleanup();
+    });
   });
+

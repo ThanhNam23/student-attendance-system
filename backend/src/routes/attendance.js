@@ -106,7 +106,7 @@ router.get('/session/:sessionId/qr', authenticate, authorize('teacher', 'admin')
 
 // POST mark attendance via QR (with optional GPS verification)
 router.post('/qr-checkin', authenticate, authorize('student'), async (req, res) => {
-  const { sessionId, token, lat, lng } = req.body;
+  const { sessionId, token, lat, lng, accuracy } = req.body;
   try {
     const [sessions] = await db.query('SELECT * FROM attendance_sessions WHERE id = ? AND qr_token = ?', [sessionId, token]);
     if (!sessions.length) return res.status(400).json({ message: 'QR code không hợp lệ' });
@@ -129,7 +129,10 @@ router.post('/qr-checkin', authenticate, authorize('student'), async (req, res) 
       }
       const dist = haversine(session.gps_lat, session.gps_lng, parseFloat(lat), parseFloat(lng));
       const radius = session.gps_radius || 100;
-      if (dist > radius) {
+      // Cộng sai số GPS của thiết bị vào bán kính cho phép (tối đa +100m)
+      const deviceAccuracy = Math.min(parseFloat(accuracy) || 0, 100);
+      const effectiveRadius = radius + deviceAccuracy;
+      if (dist > effectiveRadius) {
         return res.status(400).json({
           message: `Bạn đang ở ngoài phạm vi (${Math.round(dist)}m). Phải đứng trong vòng ${radius}m.`,
           tooFar: true,
@@ -293,7 +296,7 @@ router.get('/session/:sessionId/gps-info', authenticate, async (req, res) => {
 
 // POST GPS check-in (student submits their location)
 router.post('/gps-checkin', authenticate, authorize('student'), async (req, res) => {
-  const { sessionId, token, lat, lng } = req.body;
+  const { sessionId, token, lat, lng, accuracy } = req.body;
   if (!sessionId || !token || lat === undefined || lng === undefined) {
     return res.status(400).json({ message: 'sessionId, token, lat và lng là bắt buộc' });
   }
@@ -310,9 +313,12 @@ router.post('/gps-checkin', authenticate, authorize('student'), async (req, res)
     }
 
     const distance = haversine(session.gps_lat, session.gps_lng, parseFloat(lat), parseFloat(lng));
-    if (distance > session.gps_radius) {
+    // Cộng sai số GPS của thiết bị vào bán kính cho phép (tối đa +100m)
+    const deviceAccuracy = Math.min(parseFloat(accuracy) || 0, 100);
+    const effectiveRadius = session.gps_radius + deviceAccuracy;
+    if (distance > effectiveRadius) {
       return res.status(400).json({
-        message: `Bạn đang cách lớp học ${Math.round(distance)}m (giới hạn: ${session.gps_radius}m). Vui lòng vào trong phạm vi lớp học.`,
+        message: `Bạn đang cách lớp học ${Math.round(distance)}m (bán kính: ${session.gps_radius}m, sai số GPS: ±${Math.round(deviceAccuracy)}m). Vui lòng vào trong phạm vi lớp học.`,
         distance: Math.round(distance),
         radius: session.gps_radius,
         tooFar: true,

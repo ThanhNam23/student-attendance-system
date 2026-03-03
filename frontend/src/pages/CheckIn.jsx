@@ -43,22 +43,60 @@ export default function CheckIn() {
 
   const startCheckIn = () => {
     if (!navigator.geolocation) {
-      doCheckIn(null, null);
+      doCheckIn(null, null, null);
       return;
     }
     setStatus('locating');
-    navigator.geolocation.getCurrentPosition(
-      (pos) => doCheckIn(pos.coords.latitude, pos.coords.longitude),
-      () => doCheckIn(null, null), // let backend reject if GPS required
-      { enableHighAccuracy: true, timeout: 10000 }
+
+    const SAMPLE_MS = 5000;
+    const GOOD_ACCURACY = 20;
+    let bestPosition = null;
+    let watchId = null;
+    let done = false;
+
+    const finish = () => {
+      if (done) return;
+      done = true;
+      navigator.geolocation.clearWatch(watchId);
+      if (bestPosition) {
+        doCheckIn(bestPosition.coords.latitude, bestPosition.coords.longitude, Math.round(bestPosition.coords.accuracy));
+      } else {
+        doCheckIn(null, null, null);
+      }
+    };
+
+    const timer = setTimeout(finish, SAMPLE_MS);
+
+    watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        if (!bestPosition || pos.coords.accuracy < bestPosition.coords.accuracy) {
+          bestPosition = pos;
+        }
+        if (bestPosition.coords.accuracy <= GOOD_ACCURACY) {
+          clearTimeout(timer);
+          finish();
+        }
+      },
+      () => {
+        clearTimeout(timer);
+        if (done) return;
+        done = true;
+        navigator.geolocation.clearWatch(watchId);
+        doCheckIn(null, null, null); // let backend reject if GPS required
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
 
-  const doCheckIn = async (lat, lng) => {
+  const doCheckIn = async (lat, lng, accuracy) => {
     setStatus('loading');
     try {
       const body = { sessionId: parseInt(sessionId), token };
-      if (lat != null && lng != null) { body.lat = lat; body.lng = lng; }
+      if (lat != null && lng != null) {
+        body.lat = lat;
+        body.lng = lng;
+        if (accuracy != null) body.accuracy = accuracy;
+      }
       const res = await api.post('/attendance/qr-checkin', body);
       if (res.data.alreadyMarked) {
         setStatus('already');

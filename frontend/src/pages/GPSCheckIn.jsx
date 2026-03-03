@@ -16,6 +16,7 @@ export default function GPSCheckIn() {
   const [sessionInfo, setSessionInfo] = useState(null);
   const [distance, setDistance] = useState(null);
   const [timeLeft, setTimeLeft] = useState(null);
+  const [gpsAccuracy, setGpsAccuracy] = useState(null);
 
   // Countdown timer
   useEffect(() => {
@@ -69,14 +70,54 @@ export default function GPSCheckIn() {
   const requestLocation = (info) => {
     setStatus('locating');
     setMessage('');
+    setGpsAccuracy(null);
     if (!navigator.geolocation) {
       setStatus('error');
       setMessage('Trình duyệt của bạn không hỗ trợ GPS. Vui lòng dùng trình duyệt khác.');
       return;
     }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => handleLocation(pos, info),
+
+    // Thu thập nhiều mẫu GPS trong SAMPLE_MS ms, chọn mẫu có accuracy tốt nhất.
+    // Nếu đã có mẫu accuracy <= GOOD_ACCURACY thì dùng ngay.
+    const SAMPLE_MS = 5000;    // thời gian thu mẫu tối đa (ms)
+    const GOOD_ACCURACY = 20;  // ngưỡng "đủ tốt" (m) — dừng sớm khi đạt
+
+    let bestPosition = null;
+    let watchId = null;
+    let done = false;
+
+    const finish = () => {
+      if (done) return;
+      done = true;
+      navigator.geolocation.clearWatch(watchId);
+      if (bestPosition) {
+        setGpsAccuracy(Math.round(bestPosition.coords.accuracy));
+        handleLocation(bestPosition, info);
+      } else {
+        setStatus('error');
+        setMessage('Không thể xác định vị trí. Hãy thử lại ở nơi có tín hiệu tốt hơn.');
+      }
+    };
+
+    const timer = setTimeout(finish, SAMPLE_MS);
+
+    watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        if (!bestPosition || pos.coords.accuracy < bestPosition.coords.accuracy) {
+          bestPosition = pos;
+          setGpsAccuracy(Math.round(pos.coords.accuracy));
+        }
+        // Dừng sớm nếu đã đủ chính xác
+        if (bestPosition.coords.accuracy <= GOOD_ACCURACY) {
+          clearTimeout(timer);
+          finish();
+        }
+      },
       (err) => {
+        clearTimeout(timer);
+        if (done) return;
+        done = true;
+        navigator.geolocation.clearWatch(watchId);
         setStatus('error');
         if (err.code === 1) {
           setMessage('Bạn đã từ chối quyền truy cập vị trí. Vui lòng cho phép và thử lại.');
@@ -91,7 +132,7 @@ export default function GPSCheckIn() {
   };
 
   const handleLocation = async (pos, info) => {
-    const { latitude, longitude } = pos.coords;
+    const { latitude, longitude, accuracy } = pos.coords;
     setStatus('submitting');
     try {
       const res = await api.post('/attendance/gps-checkin', {
@@ -99,6 +140,7 @@ export default function GPSCheckIn() {
         token,
         lat: latitude,
         lng: longitude,
+        accuracy: Math.round(accuracy),
       });
       if (res.data.alreadyMarked) {
         setStatus('already');
@@ -147,6 +189,9 @@ export default function GPSCheckIn() {
           <p className="text-sm text-gray-500">{label}</p>
           {sessionInfo && (
             <p className="text-xs text-blue-500 mt-3">Bán kính cho phép: {sessionInfo.radius}m</p>
+          )}
+          {gpsAccuracy !== null && status === 'locating' && (
+            <p className="text-xs text-gray-400 mt-1">Độ chính xác hiện tại: ±{gpsAccuracy}m</p>
           )}
         </div>
       </div>

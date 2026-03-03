@@ -77,10 +77,7 @@ export default function Login() {
           </Link>
         </div>
 
-        <div className="mt-6 p-3 bg-gray-50 rounded-lg text-xs text-gray-500">
-          <p className="font-medium mb-1">Tài khoản mặc định:</p>
-          <p>📧 admin@school.edu | 🔑 admin123</p>
-        </div>
+
       </div>
     </div>
   );
